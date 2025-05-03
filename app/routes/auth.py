@@ -11,7 +11,7 @@ import re
 from app import db, jwt
 from app.models.user import User
 from app.utils.validators import validate_email, validate_password, error_response
-
+from app.models.revoked_token import RevokedToken
 bp = Blueprint("auth", __name__, url_prefix="/api")
 
 # Blocklist for revoked tokens
@@ -21,7 +21,7 @@ token_blocklist = set()
 @jwt.token_in_blocklist_loader
 def check_if_token_revoked(jwt_header, jwt_payload):
     jti = jwt_payload["jti"]
-    return jti in token_blocklist
+    return RevokedToken.is_jti_blacklisted(jti)
 
 
 # Register the same function at two different endpoints to handle both test variants
