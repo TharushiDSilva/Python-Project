@@ -67,7 +67,11 @@ def register():
         return error_response("Email already exists")
 
     # Create new user
-    new_user = User(username=username, email=data["email"], password=password)
+    new_user = User(
+    username=username,
+    email=data["email"],
+    password_hash=User.generate_password_hash(password)
+)
 
     # Add first_name and last_name if provided
     if first_name:
@@ -122,8 +126,9 @@ def login():
 
 
 # Get access token using refresh token
-@bp.route("/auth/refresh", methods=["POST"])
-@jwt_required()
+from flask_jwt_extended import jwt_required, get_jwt_identity
+@jwt_required(refresh=True)
+
 def refresh():
     """Endpoint to refresh token using refresh token in request header"""
     try:
@@ -167,6 +172,7 @@ def get_profile():
 
 
 @bp.route("/auth/verify", methods=["POST"])
+@jwt_required()
 def verify_token():
     """Verify if a token is valid and not expired"""
     return jsonify({"message": "Token is valid", "verified": True})
