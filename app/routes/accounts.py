@@ -133,6 +133,7 @@ def update_account(account_id):
     
     account = Account.query.filter(
         Account.id == account_id, 
+        Account.user_id == user_id,
         Account.is_active == True
     ).first()
     
@@ -165,6 +166,7 @@ def delete_account(account_id):
     
     account = Account.query.filter(
         Account.id == account_id, 
+        Account.user_id == user_id,
         Account.is_active == True
     ).first()
     
@@ -185,6 +187,7 @@ def get_account_transactions(account_id):
     
     account = Account.query.filter(
         Account.id == account_id, 
+        Account.user_id == user_id,
         Account.is_active == True
     ).first()
     
