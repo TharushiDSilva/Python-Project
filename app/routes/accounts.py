@@ -92,15 +92,10 @@ def create_account():
     except (ValueError, TypeError):
         return error_response('Initial balance must be a valid number', 400)
     
-    import uuid
-    import time
+    from app.utils.account_utils import generate_unique_account_number
 
-    timestamp = int(time.time() * 1000)
-    unique_suffix = str(uuid.uuid4().int)[-8:]
+    account_number = generate_unique_account_number(user_id)
 
-    account_prefix = "ACC" + str(user_id)[-3:].zfill(3)
-    account_number = f"{account_prefix}{timestamp % 10000}{unique_suffix[:4]}"
-    
     new_account = Account(
         account_number=account_number,
         account_type=account_type if account_type else 'checking',
