@@ -25,7 +25,7 @@ def check_if_token_revoked(jwt_header, jwt_payload):
 
 
 # Register the same function at two different endpoints to handle both test variants
-@bp.route("/register", methods=["POST"])
+
 @bp.route("/auth/register", methods=["POST"])
 def register():
     if not request.is_json:
