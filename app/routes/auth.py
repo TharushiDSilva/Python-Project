@@ -28,6 +28,9 @@ def check_if_token_revoked(jwt_header, jwt_payload):
 @bp.route("/register", methods=["POST"])
 @bp.route("/auth/register", methods=["POST"])
 def register():
+    if not request.is_json:
+        return error_response("Missing JSON in request")
+    
     data = request.get_json()
 
     # Validate required fields
@@ -93,6 +96,8 @@ def register():
 @bp.route("/auth/login", methods=["POST"])
 def login():
     data = request.get_json()
+    if not request.is_json:
+        return error_response("Missing JSON in request")
 
     # Check if using email or username
     if "email" in data and "password" in data:
@@ -174,8 +179,15 @@ def get_profile():
 @bp.route("/auth/verify", methods=["POST"])
 @jwt_required()
 def verify_token():
+    if not request.is_json:
+        return error_response("Missing JSON in request")
     """Verify if a token is valid and not expired"""
-    return jsonify({"message": "Token is valid", "verified": True})
+    current_user_id = get_jwt_identity()
+    return jsonify({
+        "message": "Token is valid",
+        "verified": True,
+        "user_id": current_user_id
+    })
 
 
 @bp.route("/auth/change-password", methods=["POST"])
@@ -203,7 +215,7 @@ def change_password():
         return error_response("New password must meet complexity requirements", 400)
 
     # Update password
-    user.password_hash = User.generate_password_hash(data["new_password"])
+    user.set_password = User.generate_password_hash(data["new_password"])
     db.session.commit()
 
     return jsonify({"message": "Password changed successfully"})
