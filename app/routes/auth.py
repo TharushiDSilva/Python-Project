@@ -158,7 +158,8 @@ def refresh():
 def logout():
     """Endpoint to log out user by revoking their JWT token"""
     jti = get_jwt()["jti"]
-    token_blocklist.add(jti)
+    revoked_token = RevokedToken(jti=jti)
+    revoked_token.save_to_db()
 
     return jsonify({"message": "Successfully logged out"})
 
