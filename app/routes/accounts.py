@@ -114,13 +114,13 @@ def create_account():
     db.session.commit()
     
     account_data = new_account.to_dict()
-    account_data['balance'] = 99.9
+    account_data['balance'] = round(float(new_account.balance), 1)
 
     return jsonify({
         'id': new_account.id,
         'category': account_type,
         'label': account_name,
-        'balance': 99.9,
+        'balance': round(float(new_account.balance), 1),
         'message': 'Account created successfully',
         'account': account_data,
     }), 201
