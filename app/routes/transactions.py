@@ -65,8 +65,12 @@ def deposit():
         description=data.get('description', 'Deposit')
     )
     
-    db.session.add(transaction)
-    db.session.commit()
+    try:
+        db.session.add(transaction)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return error_response(f"Transaction failed: {str(e)}", 500)
     
     return jsonify({
         'message': 'Deposit successful',
@@ -112,8 +116,12 @@ def withdraw():
         description=data.get('description', 'Withdrawal')
     )
     
-    db.session.add(transaction)
-    db.session.commit()
+    try:
+        db.session.add(transaction)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return error_response(f"Transaction failed: {str(e)}", 500)
     
     return jsonify({
         'message': 'Withdrawal successful',
@@ -171,8 +179,12 @@ def transfer():
         description=data.get('description', f'Transfer from {from_account.account_number} to {to_account.account_number}')
     )
     
-    db.session.add(transaction)
-    db.session.commit()
+    try:
+        db.session.add(transaction)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return error_response(f"Transaction failed: {str(e)}", 500)
     
     return jsonify({
         'message': 'Transfer successful',
@@ -192,8 +204,13 @@ def transfer_advanced():
         return error_response('From account ID, to account ID, and amount are required')
     
     # Validate amount
-    if not validate_amount(data['amount']):
-        return error_response('Amount must be a positive number')
+    try:
+        amount = float(data['amount'])
+        if amount <= 0:
+         return error_response('Amount must be a positive number', 400)
+    except (ValueError, TypeError):
+        return error_response('Amount must be a valid number', 400)
+
     
     amount = float(data['amount'])
     
@@ -240,11 +257,12 @@ def transfer_advanced():
 
 # Add new endpoint for account-specific transactions
 @bp.route('/accounts/<int:account_id>/transactions', methods=['POST', 'GET'])
-@jwt_required(fresh=True)
+@jwt_required()
 def account_transactions(account_id):
     """Handle transactions for a specific account"""
     user_id = int(get_jwt_identity())
-    
+    if current_user['role'] != 'admin':
+        return error_response('Permission denied', 403)
     # Verify account ownership
     account = Account.query.filter_by(id=account_id, user_id=user_id).first()
     if not account:
@@ -338,8 +356,13 @@ def account_transactions(account_id):
     else:
         return error_response('Invalid transaction type. Must be deposit, withdrawal, or transfer', 400)
     
-    db.session.add(transaction)
-    db.session.commit()
+    try:
+        db.session.add(transaction)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return error_response(f"Transaction failed: {str(e)}", 500)
+
     
     return jsonify({
         'message': f'{transaction_type.capitalize()} successful',
@@ -347,3 +370,15 @@ def account_transactions(account_id):
         'new_balance': account.balance,
         'id': transaction.id  # Include id for tests
     }), 201 
+def to_dict(self):
+    return {
+        'id': self.id,
+        'transaction_type': self.transaction_type,
+        'amount': self.amount,
+        'description': self.description,
+        'timestamp': self.timestamp,
+        'from_account_id': self.from_account_id,
+        'to_account_id': self.to_account_id
+    }
+def error_response(message, status_code=400):
+    return jsonify({'error': message}), status_code
