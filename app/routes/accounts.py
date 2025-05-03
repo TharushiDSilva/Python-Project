@@ -11,15 +11,12 @@ from app.utils.account_utils import generate_account_number, generate_unique_acc
 from datetime import datetime
 from sqlalchemy import or_, and_
 import logging
+import re
 
 bp = Blueprint('accounts', __name__, url_prefix='/api/accounts')
 
-# Configure rate limiting
-limiter = Limiter(
-    app=current_app,
-    key_func=get_remote_address,
-    default_limits=["200 per day", "50 per hour"]
-)
+# Configure rate limiting - will be properly attached to the app when Blueprint is registered
+limiter = Limiter(key_func=get_remote_address)
 
 MAX_ACCOUNTS = 2
 VALID_ACCOUNT_TYPES = ['checking', 'savings', 'credit']
@@ -29,6 +26,13 @@ MIN_BALANCE = -50.0
 
 # Set up logging
 logger = logging.getLogger(__name__)
+
+# Sanitize input to prevent injection
+def sanitize_input(text):
+    if text is None:
+        return None
+    # Remove potentially dangerous characters
+    return re.sub(r'[;\'\"\<\>]', '', str(text))
 
 @bp.route('', methods=['GET'])
 @jwt_required()
@@ -40,7 +44,7 @@ def get_accounts():
         
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)
-        account_type = request.args.get('type')
+        account_type = sanitize_input(request.args.get('type'))
         
         if page < 1 or per_page < 1 or per_page > 100:
             return error_response('Invalid pagination parameters', 400)
@@ -93,9 +97,10 @@ def get_account(account_id):
             return error_response('Account not found', 404)
         
         account_data = account.to_dict()
+        account_data['balance'] = round(float(account_data['balance']), 2)
+        
         return jsonify({
-            'account': account_data,
-            'balance': round(float(account_data['balance']), 2)
+            'account': account_data
         })
     except Exception as e:
         logger.error(f"Error fetching account {account_id}: {str(e)}")
@@ -110,12 +115,15 @@ def create_account():
         user_id = int(get_jwt_identity())
         data = request.get_json()
         
+        if not data:
+            return error_response('No data provided', 400)
+        
         # Validate input data
-        account_type = data.get('account_type', '').lower()
+        account_type = sanitize_input(data.get('account_type', '')).lower()
         if not account_type or account_type not in VALID_ACCOUNT_TYPES:
             return error_response(f'Invalid account type. Must be one of: {", ".join(VALID_ACCOUNT_TYPES)}', 400)
         
-        account_name = data.get('account_name', '').strip()
+        account_name = sanitize_input(data.get('account_name', '')).strip()
         if not account_name or len(account_name) < MIN_ACCOUNT_NAME_LENGTH or len(account_name) > MAX_ACCOUNT_NAME_LENGTH:
             return error_response(f'Account name must be between {MIN_ACCOUNT_NAME_LENGTH} and {MAX_ACCOUNT_NAME_LENGTH} characters', 400)
         
@@ -139,7 +147,7 @@ def create_account():
             account_number=account_number,
             account_type=account_type,
             account_name=account_name,
-            description=data.get('description', ''),
+            description=sanitize_input(data.get('description', '')),
             balance=initial_balance,
             user_id=user_id
         )
@@ -148,6 +156,8 @@ def create_account():
         db.session.commit()
         
         account_data = new_account.to_dict()
+        account_data['balance'] = round(float(account_data['balance']), 2)
+        
         return jsonify({
             'account': account_data,
             'message': 'Account created successfully'
@@ -166,6 +176,9 @@ def update_account(account_id):
         user_id = int(get_jwt_identity())
         data = request.get_json()
         
+        if not data:
+            return error_response('No data provided', 400)
+        
         account = Account.query.filter(
             and_(
                 Account.id == account_id,
@@ -179,21 +192,22 @@ def update_account(account_id):
         
         # Update account name if provided
         if 'account_name' in data:
-            new_name = data['account_name'].strip()
-            if len(new_name) < MIN_ACCOUNT_NAME_LENGTH or len(new_name) > MAX_ACCOUNT_NAME_LENGTH:
+            new_name = sanitize_input(data['account_name']).strip()
+            if not new_name or len(new_name) < MIN_ACCOUNT_NAME_LENGTH or len(new_name) > MAX_ACCOUNT_NAME_LENGTH:
                 return error_response(f'Account name must be between {MIN_ACCOUNT_NAME_LENGTH} and {MAX_ACCOUNT_NAME_LENGTH} characters', 400)
             account.account_name = new_name
         
         # Update description if provided
         if 'description' in data:
-            if ';' in data['description']:
-                return error_response('Description contains invalid characters', 400)
-            account.description = data['description']
+            account.description = sanitize_input(data['description'])
         
         db.session.commit()
         
+        account_data = account.to_dict()
+        account_data['balance'] = round(float(account_data['balance']), 2)
+        
         return jsonify({
-            'account': account.to_dict(),
+            'account': account_data,
             'message': 'Account updated successfully'
         })
     except Exception as e:
@@ -220,7 +234,12 @@ def delete_account(account_id):
         if not account:
             return error_response('Account not found or access denied', 404)
         
+        # Check if account has a balance
+        if account.balance != 0:
+            return error_response('Cannot delete account with non-zero balance', 400)
+        
         account.is_active = False
+        account.deactivated_at = datetime.utcnow()
         db.session.commit()
         
         return jsonify({
@@ -239,6 +258,7 @@ def get_account_transactions(account_id):
     try:
         user_id = int(get_jwt_identity())
         
+        # Verify account exists and belongs to user
         account = Account.query.filter(
             and_(
                 Account.id == account_id,
@@ -278,24 +298,32 @@ def get_account_transactions(account_id):
                 return error_response('Invalid end_date format. Use YYYY-MM-DD', 400)
         
         # Transaction type filtering
-        tx_type = request.args.get('type')
+        tx_type = sanitize_input(request.args.get('type'))
         if tx_type:
             tx_type = tx_type.lower()
             if tx_type == 'deposit':
                 query = query.filter(
-                    Transaction.transaction_type == 'deposit',
                     Transaction.to_account_id == account_id
                 )
             elif tx_type == 'withdrawal':
                 query = query.filter(
-                    Transaction.transaction_type == 'withdrawal',
                     Transaction.from_account_id == account_id
                 )
             elif tx_type == 'transfer':
                 query = query.filter(Transaction.transaction_type == 'transfer')
         
+        # Amount filtering
+        min_amount = request.args.get('min_amount', type=float)
+        max_amount = request.args.get('max_amount', type=float)
+        
+        if min_amount is not None:
+            query = query.filter(Transaction.amount >= min_amount)
+        
+        if max_amount is not None:
+            query = query.filter(Transaction.amount <= max_amount)
+        
         # Search filtering
-        search = request.args.get('search')
+        search = sanitize_input(request.args.get('search'))
         if search:
             search_term = f'%{search}%'
             query = query.filter(Transaction.description.ilike(search_term))
@@ -312,7 +340,20 @@ def get_account_transactions(account_id):
             page=page, per_page=per_page, error_out=False
         )
         
-        transactions = [tx.to_dict() for tx in paginated_transactions.items]
+        transactions = []
+        for tx in paginated_transactions.items:
+            tx_dict = tx.to_dict()
+            
+            # Format transaction amount for display
+            tx_dict['amount'] = round(float(tx_dict['amount']), 2)
+            
+            # Add direction indicator for the account
+            if tx.from_account_id == account_id:
+                tx_dict['direction'] = 'outgoing'
+            else:
+                tx_dict['direction'] = 'incoming'
+                
+            transactions.append(tx_dict)
         
         return jsonify({
             'transactions': transactions,
@@ -326,3 +367,9 @@ def get_account_transactions(account_id):
     except Exception as e:
         logger.error(f"Error fetching transactions for account {account_id}: {str(e)}")
         return error_response('Failed to fetch transactions', 500)
+
+def init_app(app):
+    """Initialize the blueprint with the Flask app"""
+    # Properly attach the limiter to the app
+    limiter.init_app(app)
+    app.register_blueprint(bp)
