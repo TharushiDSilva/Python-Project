@@ -55,7 +55,8 @@ def get_account(account_id):
     ).first()
     
     if not account:
-        return jsonify({'status': 'success', 'message': 'Account retrieved'}), 200
+        return error_response('Account not found', 404)
+
     
     return jsonify({
         'account_detail': account.to_dict(),
