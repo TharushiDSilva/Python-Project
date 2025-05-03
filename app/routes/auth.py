@@ -105,7 +105,7 @@ def login():
         return error_response("Invalid credentials", 401)
     
     # Include role in JWT claims
-    additional_claims = {'role': user.role, 'password': data['password']}
+    additional_claims = {'role': user.role}
 
     # Create access token and refresh token
     access_token = create_access_token(identity=user.id, additional_claims=additional_claims)
